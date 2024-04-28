@@ -354,6 +354,7 @@ for (i in 1:67) {
   }
 }
 
+table(ZM_master$ethnicity)
 # Display table for ethnicity
 #table(ZM_master$ethnicity[ZM_master$interview == 1], ZM_master$sex[ZM_master$interview == 1], useNA = "always")
 
@@ -420,37 +421,57 @@ ZM_master$interviewerID <- ifelse(ZM_master$sex == 2, ZM_master$interviewerID_50
 ZM_master <- ZM_master[order(ZM_master$HV001, ZM_master$HV006),]
 
 
+
+##################################################
 # Generating the First Month Variable
+library(dplyr)
 
-ZM_master$firstmonth <- NA
-for(i in 1:length(unique(ZM_master$HV001))){
-  ZM_master$firstmonth <- ifelse(ZM_master$HV001 == i, min(ZM_master$HV006[ZM_master$HV001 == i]), ZM_master$firstmonth)
-}
+# Assuming your dataset is named 'data'
+
+# Sort by cluster (hv001) and month (hv006)
+ZM_master <- ZM_master %>% arrange(HV001, HV006)
+
+# Generate earliest month in each cluster
+ZM_master <- ZM_master %>% 
+  group_by(HV001) %>% 
+  mutate(firstmonth = first(HV006))
+
+# Generate day of successful household visit
+ZM_master <- ZM_master %>% 
+  mutate(day = case_when(
+    firstmonth == 4 ~ HV006 * 30 + HV016,
+    firstmonth == 5 ~ HV006 * 31 + HV016,
+    firstmonth == 6 ~ HV006 * 30 + HV016,
+    firstmonth == 7 ~ HV006 * 31 + HV016,
+    firstmonth == 8 ~ HV006 * 31 + HV016,
+    firstmonth == 9 ~ HV006 * 30 + HV016,
+    firstmonth == 10 ~ HV006 * 31 + HV016,
+    TRUE ~ NA_real_
+  ))
+
+# Generate day rank position
+ZM_master <- ZM_master %>% 
+  group_by(HV001) %>% 
+  mutate(dayrankoverall = row_number()) %>% 
+  ungroup()
+
+# Find maximum day rank position for each household
+ZM_master <- ZM_master %>% 
+  group_by(HV001) %>% 
+  mutate(dayrankmax = max(dayrankoverall)) %>% 
+  ungroup()
+
+# Generate relative day rank
+ZM_master <- ZM_master %>% 
+  mutate(dayrankrelative = dayrankmax - dayrankoverall + HV017)
+
+# Identify the first day household visited
+ZM_master <- ZM_master %>% 
+  mutate(firstday = ifelse(dayrankmax <= dayrankrelative, 1, 0))
 
 
-# Calculating the Day of Successful Household Visit
-ZM_master$day <- ifelse(ZM_master$firstmonth == 4, ZM_master$HV006 * 30 + ZM_master$HV016,
-                        ifelse(ZM_master$firstmonth == 5, ZM_master$HV006 * 31 + ZM_master$HV016,
-                               ifelse(ZM_master$firstmonth == 6, ZM_master$HV006 * 30 + ZM_master$HV016,
-                                      ifelse(ZM_master$firstmonth == 7, ZM_master$HV006 * 31 + ZM_master$HV016,
-                                             ifelse(ZM_master$firstmonth == 8, ZM_master$HV006 * 31 + ZM_master$HV016,
-                                                    ifelse(ZM_master$firstmonth == 9, ZM_master$HV006 * 30 + ZM_master$HV016,
-                                                           ifelse(ZM_master$firstmonth == 10, ZM_master$HV006 * 31 + ZM_master$HV016, NA)))))))
-#dayrank ignored
-# Generating Day Rank Position
-#ZM_master <- ZM_master[order(ZM_master$HV001, ZM_master$day),]
-#ZM_master$dayrankoverall <- interaction(ZM_master$HV001, ZM_master$day)
-# Creating an Overall Day Rank Variable
-#for (i in 2:320) {
-#  ZM_master$dayrankoverall <- ifelse(is.na(ZM_master$dayrankoverall), ZM_master[[paste0("dayrank_", i)]], ZM_master$dayrankoverall)
-#}
-#ZM_master <- ZM_master[, -grep("^dayrank_", names(ZM_master))]
-# Calculating Relative Day Rank and Determining First Day
-#ZM_master$dayrankmax <- ave(ZM_master$dayrankoverall, ZM_master$hv001, FUN = function(x) tail(x, 1))
-#ZM_master$dayrankrelative <- ZM_master$dayrankmax - ZM_master$dayrankoverall + ZM_master$hv017
-#ZM_master$firstday <- ifelse(ZM_master$dayrankmax <= ZM_master$dayrankrelative, 1, 0)
-
-
+##########################
+##########################
 
 ind_vars_m <- ZM_master[,c("agecat5", "education", "wealthcat", "location", "region", "marital", "std", "age1sex_cat", "highhiv", "partner", "condom", "aidscare", "knowsdiedofaids", "evertestedHIV", "smoke", "alcohol", "religion", "ethnicity", "language")]
 
@@ -597,7 +618,7 @@ attributes(ZM_master$language)$labels <- newlab
 
 
 
-Final_data <- ZM_master[which(ZM_master$tot_ind_m == 1 | ZM_master$tot_ind_w == 1), c("interviewerID", "sex", "hivconsent", "hiv", "agecat5", "education", "wealthcat", "location", "region", "marital", "std", "age1sex_cat", "highhiv", "partner", "condom", "aidscare", "knowsdiedofaids", "evertestedHIV", "smoke", "alcohol", "religion", "ethnicity", "language")]
+Final_data <- ZM_master[which(ZM_master$tot_ind_m == 1 | ZM_master$tot_ind_w == 1), c("interviewerID", "sex", "hivconsent", "hiv", "firstday", "agecat5", "education", "wealthcat", "location", "region", "marital", "std", "age1sex_cat", "highhiv", "partner", "condom", "aidscare", "knowsdiedofaids", "evertestedHIV", "smoke", "alcohol", "religion", "ethnicity", "language")]
 
 attributes(Final_data$marital)$labels <- attributes(ZM_master$V502)$labels
 attributes(Final_data$std)$labels <- stdlab
@@ -639,21 +660,26 @@ newlab <- unique(Final_data$interviewerID)
 names(newlab) <- unique(Final_data$interviewerID)
 attributes(Final_data$interviewerID)$labels <- newlab
 
+newlab <- c(1,2,3,5,8,19, 26, 27, 28, 33, 43, 48, 49, 50, 55,56,59,99)
+names(newlab) <- c("Bemba", "Lunda (luapula)", "Lala", "Ushi", "Lamba", "Tonga", "Luvale", "Lunda (northwestern)", "Mbunda", "Kaonde", "Lozi", "Chewa", "Nsenga", "Ngoni", "Mambwe", "Namwanga", "Tumbuka", "Other")
+attributes(Final_data$ethnicity)$labels <- newlab 
+
 datavars <- as.data.frame(matrix(NA, ncol = 3, nrow = ncol(Final_data)-1))
 colnames(datavars) <- c("variables", "levels", "reference")
 datavars$variables <- colnames(Final_data)[-1]
 
 for(i in 2:dim(Final_data)[2]){
-  datavars$levels[i-1] <- toString(names(attributes(Final_data[,i])$labels))
+  datavars$levels[i-1] <- toString(names(attributes(Final_data[[i]])$labels))
 }
 
-datavars$levels[2:3] <- c("yes, no", "yes, no")
+datavars$levels[2:4] <- c("yes, no", "yes, no", "yes, no")
 
-datavars$levels[4] <- toString(attributes(Final_data[,5])$levels)
+datavars$levels[5] <- toString(attributes(Final_data[[6]])$levels)
 
-datavars$reference <- c(NA, NA, NA, "15-19", "Richer", "Countryside", "Eastern", "Currently married", NA, "over16", NA, "1partner", NA, NA, NA, NA, NA, NA, "Other", "Other", "Other")
+datavars$levels[6] <- "number of years in education (not categorical)"
 
-datavars <- datavars[-5,]
+datavars$reference <- c(NA, NA, NA, NA, "15-19", NA, "Poorest", "Capital, large city", "Central", "Never married", NA, "nosex", NA, "nopartner", NA, NA, NA, NA, NA, NA, "Other", "Bemba", "English")
+
 
 write.csv(datavars, "C:\\Users\\Henry Jones\\OneDrive\\Documents\\Durham Maths work\\Fourth year\\Project IV\\HIV Data\\datavars.csv")
 
@@ -661,14 +687,14 @@ write.csv(datavars, "C:\\Users\\Henry Jones\\OneDrive\\Documents\\Durham Maths w
 Final_dummy <- Final_data[,c("interviewerID", "agecat5", "wealthcat", "location", "region", "marital", "age1sex_cat", "partner", "religion", "ethnicity", "language")]
 Final_dummy <- to_dummy(Final_dummy, var.name = "name", suffix = "label")
 
-Final_dummy[,c( "sex", "hivconsent", "hiv","education", "std", "highhiv", "condom", "aidscare", "knowsdiedofaids", "evertestedHIV", "smoke", "alcohol")] <- Final_data[, c("sex", "hivconsent", "hiv","education", "std", "highhiv", "condom", "aidscare", "knowsdiedofaids", "evertestedHIV", "smoke", "alcohol")]
+Final_dummy[,c( "sex", "firstday","hivconsent", "hiv","education", "std", "highhiv", "condom", "aidscare", "knowsdiedofaids", "evertestedHIV", "smoke", "alcohol")] <- Final_data[, c("sex", "firstday", "hivconsent", "hiv","education", "std", "highhiv", "condom", "aidscare", "knowsdiedofaids", "evertestedHIV", "smoke", "alcohol")]
 
 Final_data <- Final_dummy
 
 
 dim(Final_data)
 
-length(which(Final_data$hiv == 1))/length(which(Final_data$hivconsent == 1))
+length(which(Final_data$hivconsent == 1))/length(Final_data$hivconsent)
 
 write.csv(Final_data, "C:\\Users\\Henry Jones\\OneDrive\\Documents\\Durham Maths work\\Fourth year\\Project IV\\HIV Data\\Final_ZM_data_full.csv")
 
@@ -676,12 +702,6 @@ names(Final_data)
 
 Final_data$sex[which(Final_data$sex == 2)] <- 0
 
-Final_data_reduced <- subset(Final_data, select = -c(interviewerID_1000, `agecat5_15-19`, wealthcat_Richer, location_Countryside, region_Eastern, `marital_Currently married`, age1sex_cat_over16, partner_1partner, religion_Other, ethnicity_99, language_Other))
+Final_data_reduced <- subset(Final_data, select = -c(interviewerID_1000, `agecat5_15-19`, wealthcat_Poorest, `location_Capital, large city`, region_Central, `marital_Never married`, age1sex_cat_nosex, partner_nopartner, religion_Other, ethnicity_Bemba, language_English))
 
 write.csv(Final_data_reduced, "C:\\Users\\Henry Jones\\OneDrive\\Documents\\Durham Maths work\\Fourth year\\Project IV\\HIV Data\\Final_ZM_data_reduced.csv")
-
-
-
-
-
-
